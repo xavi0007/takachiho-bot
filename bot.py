@@ -12,15 +12,47 @@ import ssl
 import sys
 import time
 from email.message import EmailMessage
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
-URL = 'https://eipro.jp/takachiho1/eventCalendars/index'
-ROOT = Path(__file__).resolve().parent
-JAPAN = ZoneInfo('Asia/Tokyo')
-TARGETS = {'2026-11-08'}
-load_dotenv(ROOT / '.env', override=False)
+SCRIPT_DIR = Path(__file__).resolve().parent
+load_dotenv(SCRIPT_DIR / '.env', override=False)
+
+URL = os.getenv(
+    'URL', 'https://eipro.jp/takachiho1/eventCalendars/index').strip()
+if not URL:
+    raise RuntimeError('URL must not be empty.')
+
+root_value = os.getenv('ROOT', str(SCRIPT_DIR)).strip()
+if not root_value:
+    raise RuntimeError('ROOT must not be empty.')
+ROOT = Path(root_value).expanduser()
+if not ROOT.is_absolute():
+    ROOT = SCRIPT_DIR / ROOT
+ROOT = ROOT.resolve()
+
+japan_value = os.getenv('JAPAN', 'Asia/Tokyo').strip()
+if not japan_value:
+    raise RuntimeError('JAPAN must be a valid time zone name.')
+try:
+    JAPAN = ZoneInfo(japan_value)
+except ZoneInfoNotFoundError as exc:
+    raise RuntimeError(f'JAPAN is not a valid time zone name: {japan_value}') from exc
+
+target_values = [value.strip() for value in
+                 os.getenv('TARGETS', '2026-11-08').split(',')]
+if not target_values or any(not value for value in target_values):
+    raise RuntimeError('TARGETS must be a comma-separated list of YYYY-MM-DD dates.')
+try:
+    parsed_targets = [dt.date.fromisoformat(value) for value in target_values]
+except ValueError as exc:
+    raise RuntimeError(
+        'TARGETS must be a comma-separated list of YYYY-MM-DD dates.') from exc
+if any(date.isoformat() != value
+       for date, value in zip(parsed_targets, target_values)):
+    raise RuntimeError('TARGETS dates must use YYYY-MM-DD format.')
+TARGETS = {date.isoformat() for date in parsed_targets}
 
 
 def send(subject, body):
@@ -98,8 +130,10 @@ def check(page):
             match = re.search(r'残\s*(\d+)\s*艇', e['remain'])
             icon = e['icon']
             if match and int(match.group(1)) > 0:
+                local_time = dt.datetime.fromisoformat(
+                    f"{day['date']}T{hour:02d}:{minute:02d}").replace(tzinfo=JAPAN)
                 found.append(
-                    f"{day['date']} {hour:02d}:{minute:02d} JST — {match.group(1)} boat(s) remaining")
+                    f"{day['date']} {hour:02d}:{minute:02d} {local_time.tzname()} — {match.group(1)} boat(s) remaining")
             elif 'fa-times' in icon or 'fa-hourglass' in icon or (match and int(match.group(1)) == 0):
                 pass
             else:
@@ -134,6 +168,7 @@ def main():
     if not all(os.getenv(k, '').strip() for k in ('SMTP_USER', 'SMTP_PASSWORD', 'ALERT_TO')):
         raise RuntimeError(
             'Set SMTP_USER, SMTP_PASSWORD and ALERT_TO in .env. See README.md.')
+    ROOT.mkdir(parents=True, exist_ok=True)
     state_path = ROOT / 'state.json'
     try:
         previous = set(json.loads(
@@ -145,7 +180,7 @@ def main():
     last_error = None
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page(locale='ja-JP', timezone_id='Asia/Tokyo')
+        page = browser.new_page(locale='ja-JP', timezone_id=JAPAN.key)
         while True:
             try:
                 slots = check(page)
@@ -153,7 +188,7 @@ def main():
                 logging.info('Available morning slots: %s',
                              ', '.join(slots) if slots else 'none')
                 if new:
-                    send('Takachiho boat slot available!', 'Available morning slots (Japan time):\n\n' + '\n'.join(slots) +
+                    send('Takachiho boat slot available!', f'Available morning slots ({JAPAN.key}):\n\n' + '\n'.join(slots) +
                          '\n\nBook promptly: ' + URL + '\n\nAvailability can change. This alert does not reserve or pay for a boat.')
                     logging.info('Availability email sent.')
                 previous = set(slots)

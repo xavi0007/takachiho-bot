@@ -32,6 +32,11 @@ nano .env
 
 Set these values in `.env`:
 
+- `URL`: calendar page to check
+- `ROOT`: directory for `state.json`; relative paths are resolved from the
+  directory containing `bot.py`
+- `JAPAN`: IANA time zone name used by the browser and alert messages
+- `TARGETS`: comma-separated calendar dates in `YYYY-MM-DD` format
 - `SMTP_USER`: the full email address used to log in and send alerts
 - `SMTP_PASSWORD`: its SMTP or app-specific password
 - `ALERT_TO`: the destination email address for alerts
@@ -39,21 +44,20 @@ Set these values in `.env`:
   iCloud Mail
 
 Keep `.env` private. It is intentionally excluded from Git. The script loads it
-from the same folder as `bot.py`; environment variables already set in the
-shell take precedence.
+from the same folder as `bot.py`, regardless of the configured `ROOT`.
+Environment variables already set in the shell take precedence.
 
 ## Choose the dates to check
 
-Edit the `TARGETS` set near the top of `bot.py`. Use calendar dates in
-`YYYY-MM-DD` format, for example:
+Set `TARGETS` in `.env`, using comma-separated dates, for example:
 
-```python
-TARGETS = {'2026-11-08'}
+```dotenv
+TARGETS=2026-11-20,2026-11-21
 ```
 
-The checked-in date, November 8, 2026, has passed. Set one or more upcoming
-dates before running the watcher. All target dates need to appear together in
-the calendar's displayed seven-day week.
+Replace the example with your desired upcoming date or dates before running
+the watcher. All target dates need to appear together in the calendar's
+displayed seven-day week.
 
 ## Run the watcher
 
